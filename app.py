@@ -1,5 +1,4 @@
 import json
-
 import joblib
 import numpy as np
 import pandas as pd
@@ -191,10 +190,9 @@ for key, default in [
 
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_replay, tab_sim, tab_patterns, tab_region = st.tabs(
+tab_replay, tab_patterns, tab_region = st.tabs(
     [
         "▶ Replay vessel track",
-        "🎮 Manual simulator",
         "🐟 How vessels fish",
         "🌍 Ocean Region Predictor",
     ]
@@ -284,16 +282,16 @@ with tab_replay:
                 df_trip,
                 preds,
                 list(models.keys()),
-                height=580,
+                height=820,
             )
-            st.iframe(html, height=580)
+            st.iframe(html, height=820)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — SIMULATOR
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_sim:
-    st.write("Simulator tab — coming soon")
+# # ══════════════════════════════════════════════════════════════════════════════
+# # TAB 2 — SIMULATOR (deprecated)
+# # ══════════════════════════════════════════════════════════════════════════════
+# with tab_sim:
+#     st.write("Simulator tab — coming soon")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -10,10 +10,10 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #080f1e; color: #e8edf5; font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   #map { flex: 1; background: #080f1e; }
-  #overlay { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; pointer-events: none; min-width: 190px; }
-  .model-card { background: rgba(8,15,30,0.92); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px 14px; }
-  .model-name { font-size: 10px; color: #6b7fa3; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; font-weight: 600; }
-  .pred-row { display: flex; align-items: center; gap: 8px; }
+  #overlay { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; pointer-events: none; min-width: 220px; isolation: isolate; }
+  .model-card { background: rgba(8,15,30,0.92); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 12px 16px; }
+  .model-name { font-size: 11px; color: #6b7fa3; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; font-weight: 600; }
+  .pred-row { font-size: 15px; display: flex; align-items: center; gap: 8px; }
   .pred-label { font-size: 13px; font-weight: 600; min-width: 100px; }
   .pred-label.fishing    { color: #D85A30; }
   .pred-label.transiting { color: #378ADD; }
@@ -85,26 +85,37 @@ MODEL_NAMES.forEach(name => {
   const div = document.createElement('div');
   div.className = 'model-card';
   div.id = 'card-' + id;
+
   div.innerHTML = `
     <div class="model-name">${name}</div>
-    <div class="pred-row">
+    <span id="trophy-${id}" style="position:absolute;top:8px;right:8px;font-size:14px;display:none;">🏆</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <span class="pred-label" id="label-${id}">&mdash;</span>
-      <div class="prob-wrap"><div class="prob-fill" id="bar-${id}" style="width:0%"></div></div>
-      <span class="prob-val" id="prob-${id}">&mdash;</span>
-      <span class="match-ind" id="match-${id}">&nbsp;</span>
+      <span id="acc-pct-${id}" style="font-size:15px;font-weight:700;font-family:monospace;color:#6b7fa3;min-width:80px;text-align:right;">&mdash;</span>
     </div>
-    <div style="margin-top:5px;font-size:10px;color:#6b7fa3;font-family:monospace;display:flex;justify-content:space-between;">
-      <span id="acc-${id}">0 / 0</span>
-      <span id="acc-pct-${id}" style="font-weight:600;">—</span>
-    </div>`;    
-  overlay.appendChild(div);
+    <div class="prob-wrap" style="margin-bottom:6px;">
+      <div class="prob-fill" id="bar-${id}" style="width:0%"></div>
+    </div>
+    <div style="font-size:10px;color:#6b7fa3;font-family:monospace;">
+      <span id="acc-${id}">0 fishing events</span>
+    </div>
+    <span id="prob-${id}" style="display:none"></span>
+    <span id="match-ind-${id}" style="display:none"></span>`;
+
+  div.style.position = 'relative';
+  overlay.appendChild(div);  
 });
 
-const correctCounts = {};
-const totalCounts   = {};
+const tp = {};  // true positives  (predicted fishing, was fishing)
+const fp = {};  // false positives (predicted fishing, not fishing)
+const fn = {};  // false negatives (predicted not fishing, was fishing)
+const totalCounts = {};
+
 MODEL_NAMES.forEach(name => {
-  correctCounts[name] = 0;
-  totalCounts[name]   = 0;
+  tp[name] = 0;
+  fp[name] = 0;
+  fn[name] = 0;
+  totalCounts[name] = 0;
 });
 
 // ── Leaflet layers ─────────────────────────────────────────────────────────
@@ -135,7 +146,7 @@ const currentMarker = L.circleMarker([CENTER_LAT, CENTER_LON], {
 let currentStep  = 0;   // index of the ping we are travelling FROM
 let stepProgress = 0.0; // 0.0 → 1.0 fraction of the way to next ping
 let lastTimestamp = null;
-let MS_PER_PING   = 250; // controlled by speed select in info bar
+let MS_PER_PING   = 800; // controlled by speed select in info bar
 
 // ── Info bar helpers ───────────────────────────────────────────────────────
 function updateInfoBar(s) {
@@ -169,16 +180,20 @@ function updateModelCards(s) {
     const pct     = Math.round(pred.prob * 100);
     const correct = pred.label === curr.is_fishing;
 
-    // Only count each ping once — check if this step was already counted
     if (totalCounts[name] <= s) {
       totalCounts[name]++;
-      if (correct) correctCounts[name]++;
-    }
+      const predicted = pred.label;
+      const actual    = curr.is_fishing;
+
+      if (predicted === 1 && actual === 1) tp[name]++;
+      else if (predicted === 1 && actual === 0) fp[name]++;
+      else if (predicted === 0 && actual === 1) fn[name]++;
+    }    
 
     const labelEl  = document.getElementById('label-' + id);
     const barEl    = document.getElementById('bar-'   + id);
     const probEl   = document.getElementById('prob-'  + id);
-    const matchEl  = document.getElementById('match-' + id);
+    const matchEl  = document.getElementById('match-ind-' + id);
     const accEl    = document.getElementById('acc-'   + id);
     const accPctEl = document.getElementById('acc-pct-' + id);
 
@@ -194,15 +209,23 @@ function updateModelCards(s) {
     matchEl.textContent = correct ? '\u2713' : '\u2717';
     matchEl.style.color = correct ? '#1D9E75' : '#D85A30';
 
-    // Running accuracy
+    // Running F1-score
+    const f1  = f1Score(name);
     const total = totalCounts[name];
-    const corr  = correctCounts[name];
-    accEl.textContent    = `${corr} / ${total}`;
-    accPctEl.textContent = total > 0 ? (corr / total * 100).toFixed(1) + '%' : '—';
-    accPctEl.style.color = total > 0
-      ? (corr / total >= 0.7 ? '#1D9E75' : corr / total >= 0.5 ? '#EF9F27' : '#D85A30')
-      : '#6b7fa3';
+
+    accEl.textContent    = `${tp[name]+fp[name]+fn[name]} fishing events`;
+    accPctEl.textContent = total > 0 ? 'F1: ' + f1.toFixed(2) : '—';
+    accPctEl.style.color = f1 >= 0.7 ? '#1D9E75' : f1 >= 0.5 ? '#EF9F27' : '#D85A30';      
   });
+}
+
+function f1Score(name) {
+  const precision = tp[name] + fp[name] > 0
+    ? tp[name] / (tp[name] + fp[name]) : 0;
+  const recall = tp[name] + fn[name] > 0
+    ? tp[name] / (tp[name] + fn[name]) : 0;
+  return precision + recall > 0
+    ? 2 * precision * recall / (precision + recall) : 0;
 }
 
 // ── Main animation tick ────────────────────────────────────────────────────
@@ -241,32 +264,34 @@ function tick(timestamp) {
     }).addTo(pingLayer);
 
     currentMarker.setLatLng([last.lat, last.lon]);
+    if (followVessel) {
+      map.panTo([last.lat, last.lon], { animate: true, duration: MS_PER_PING / 1000 * 0.8 });
+    } 
     updateInfoBar(PINGS.length - 1);
     updateModelCards(PINGS.length - 1);
 
     // Find best model
     const bestModel = MODEL_NAMES.reduce((best, name) =>
-      (correctCounts[name] / totalCounts[name]) > (correctCounts[best] / totalCounts[best])
-        ? name : best
-    );
-    
+      f1Score(name) > f1Score(best) ? name : best
+    );    
 
     MODEL_NAMES.forEach(name => {
       const id    = name.replace(/\s+/g, '_');
-      const card  = document.getElementById('card-' + name.replace(/\s+/g, '_'));
+      const card  = document.getElementById('card-' + id);
       const pctEl = document.getElementById('acc-pct-' + id);
-      // if (name === bestModel) {
-      //   pctEl.textContent = (correctCounts[name] / totalCounts[name] * 100).toFixed(1) + '% 🏆';
-      //   pctEl.style.color = '#1D9E75';
-      // }
+
       if (name === bestModel) {
-        pctEl.textContent    = (correctCounts[name] / totalCounts[name] * 100).toFixed(1) + '% \uD83C\uDFC6';
-        pctEl.style.color    = '#1D9E75';
-        card.style.borderColor = '#1D9E75';
+        card.style.background = 'rgba(15,35,25,0.94)';
+        pctEl.textContent = 'F1: ' + f1Score(name).toFixed(2);
+        pctEl.style.color = '#1D9E75';
+        document.getElementById('trophy-' + id).style.display = 'block';
       } else {
-        card.style.borderColor = 'rgba(255,255,255,0.12)';
+        card.style.background = '';
+        const f1val = f1Score(name);
+        pctEl.style.color = f1val >= 0.7 ? '#1D9E75' : f1val >= 0.5 ? '#EF9F27' : '#D85A30';
+        document.getElementById('trophy-' + id).style.display = 'none';        
       }      
-    });    
+    }); 
 
     setTimeout(() => {
         currentStep  = 0;
@@ -291,6 +316,10 @@ function tick(timestamp) {
   // Update gliding marker
   currentMarker.setLatLng([lat, lon]);
 
+  // Center of vessel (unset to disable)
+  // let followVessel = true;
+  if (followVessel) map.panTo([lat, lon], { animate: true, duration: MS_PER_PING / 1000 * 0.8 });
+
   // Extend track line to interpolated position
   const pastCoords = PINGS.slice(0, currentStep + 1).map(p => [p.lat, p.lon]);
   pastCoords.push([lat, lon]);
@@ -309,11 +338,11 @@ speedItem.className = 'info-item';
 speedItem.innerHTML = `
   <span class="info-label">Speed</span>
   <select id="speed-select" style="background:#0d1a2e;color:#e8edf5;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 6px;font-size:12px;font-family:monospace;">
-    <option value="500">0.5×</option>
-    <option value="250" selected>1×</option>
-    <option value="125">2×</option>
-    <option value="50">5×</option>
-    <option value="20">10×</option>
+    <option value="1600">0.5×</option>
+    <option value="800" selected>1×</option>
+    <option value="400">2×</option>
+    <option value="160">5×</option>
+    <option value="80">10×</option>
   </select>`;
 
 // Insert before progress bar
@@ -343,9 +372,14 @@ document.getElementById('pause-btn').addEventListener('click', function() {
     pingLayer.clearLayers();
     trackLine.setLatLngs([]);
     MODEL_NAMES.forEach(name => {
-      correctCounts[name] = 0;
-      totalCounts[name]   = 0;
-    });    
+      tp[name] = 0;
+      fp[name] = 0;
+      fn[name] = 0;
+      totalCounts[name] = 0;
+      const id = name.replace(/\s+/g, '_');
+      const resetCard = document.getElementById('card-' + id);
+      resetCard.style.background = '';
+    });  
     paused = false;
     this.textContent = '⏸ Pause';
     requestAnimationFrame(tick);
@@ -357,6 +391,30 @@ document.getElementById('pause-btn').addEventListener('click', function() {
       lastTimestamp = null;
       requestAnimationFrame(tick);
     }
+  }
+});
+
+// ── Add follow vessel toggle ───────────────────────────────────────────────
+let followVessel = true;
+const followItem = document.createElement('div');
+followItem.innerHTML = `
+  <button id="follow-btn" style="background:rgba(55,138,221,0.2);border:1px solid rgba(55,138,221,0.4);color:#378ADD;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer;white-space:nowrap;">
+    📍 Following
+  </button>`;
+document.getElementById('info-bar').insertBefore(followItem, progressWrap);
+
+document.getElementById('follow-btn').addEventListener('click', function() {
+  followVessel = !followVessel;
+  if (followVessel) {
+    this.textContent    = '📍 Following';
+    this.style.background    = 'rgba(55,138,221,0.2)';
+    this.style.borderColor   = 'rgba(55,138,221,0.4)';
+    this.style.color         = '#378ADD';
+  } else {
+    this.textContent    = '🗺️ Free map';
+    this.style.background    = 'rgba(255,255,255,0.08)';
+    this.style.borderColor   = 'rgba(255,255,255,0.15)';
+    this.style.color         = '#e8edf5';
   }
 });
 
