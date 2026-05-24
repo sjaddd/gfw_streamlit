@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+import pycountry
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
@@ -14,6 +15,27 @@ st.set_page_config(page_title="GFW Vessel Classifier", page_icon="🚢", layout=
 
 st.title("🚢 GFW Vessel Behaviour Classifier")
 st.caption("Classifying fishing vessel behaviour from AIS tracking data")
+
+NAME_OVERRIDES = {
+    "KR": "South Korea",
+    "TW": "Taiwan",
+    "TZ": "Tanzania",
+    "VN": "Vietnam",
+    "IR": "Iran",
+    "RU": "Russia",
+    "BO": "Bolivia",
+    "MD": "Moldova",
+    "SY": "Syria",
+    "GB": "UK",
+    "US": "USA",
+}
+
+GEAR_LABELS = {
+    "trawler": "Trawler",
+    "fixed_gear": "Fixed Gear",
+    "longliner": "Longliner",
+    "purse_seine": "Purse Seine",
+}
 
 
 # ── Load models and metadata ───────────────────────────────────────────────────
@@ -60,7 +82,39 @@ def load_data(test_trip_ids):
     return df[df["trip_id_global"].isin(valid_trips)].copy()
 
 
+def get_trip_label(df_trip):
+    """Generate a human-readable label for a trip."""
+    port_name = df_trip["nearest_port_name"].mode()[0]
+    country_code = df_trip["nearest_port_country"].mode()[0]
+    month_year = df_trip["datetime"].iloc[0].strftime("%b %Y")
+    n_pings = len(df_trip)
+    country_name = country_code_to_name(str(country_code))
+    return f"{port_name}, {country_name} · {month_year} · {n_pings} pings"
+
+
+def country_code_to_name(code):
+    if code in NAME_OVERRIDES:
+        return NAME_OVERRIDES[code]
+    try:
+        return pycountry.countries.get(alpha_2=code).name
+    except:
+        return code
+
+
 df_test = load_data(frozenset(test_trips))
+
+
+@st.cache_data
+def build_trip_labels(trip_ids, _df):
+    """Pre-compute labels for all test trips."""
+    labels = {}
+    for trip_id in trip_ids:
+        df_trip = _df[_df["trip_id_global"] == trip_id]
+        labels[trip_id] = get_trip_label(df_trip)
+    return labels
+
+
+trip_labels = build_trip_labels(tuple(df_test["trip_id_global"].unique()), df_test)
 
 
 # ── Helper: run all models on a trip and return per-ping predictions ───────────
@@ -153,20 +207,49 @@ tab_replay, tab_sim, tab_patterns, tab_region = st.tabs(
 with tab_replay:
     col_controls, col_map = st.columns([1, 3])
 
+    def label_sort_key(trip_id):
+        label = trip_display.get(trip_id, trip_id)
+        # Label format: "PortName, Country · Mon YYYY · N pings"
+        # Extract country by splitting on ", " and taking second part up to " ·"
+        try:
+            return label.split(", ")[1].split(" ·")[0]
+        except:
+            return label
+
     with col_controls:
         st.subheader("Select vessel")
 
         gear_options = sorted(df_test["vessel_gear_type"].astype(str).unique())
-        selected_gear = st.selectbox("Gear type", gear_options)
+
+        selected_gear = st.selectbox(
+            "Gear type",
+            options=gear_options,
+            format_func=lambda g: GEAR_LABELS.get(g, g) or g,
+        )
 
         trips_for_gear = (
             df_test[df_test["vessel_gear_type"] == selected_gear]["trip_id_global"]
             .unique()
             .tolist()
         )
+
         st.caption(f"{len(trips_for_gear)} trips available")
 
-        selected_trip = st.selectbox("Trip", sorted(trips_for_gear))
+        # Build display dict first
+        trip_display = {t: trip_labels.get(t, t) for t in trips_for_gear}
+
+        # Then sort by label
+        # trip_options = sorted(trips_for_gear, key=lambda t: trip_display.get(t, t))
+        trip_options = sorted(trips_for_gear, key=label_sort_key)
+
+        # trip_options = sorted(trips_for_gear, key=label_sort_key)
+        # trip_display = {t: trip_labels.get(t, t) for t in trip_options}
+
+        selected_trip = st.selectbox(
+            "Trip (nearest port)",
+            options=trip_options,
+            format_func=lambda t: trip_display[t],
+        )
 
         df_trip = (
             df_test[df_test["trip_id_global"] == selected_trip]
@@ -177,7 +260,7 @@ with tab_replay:
 
         st.divider()
         st.subheader("Info")
-        st.markdown(f"**Gear type:** {selected_gear}")
+        st.markdown(f"**Gear type:** {GEAR_LABELS.get(selected_gear, selected_gear)}")
         st.markdown(f"**From:** {df_trip['datetime'].iloc[0].strftime('%Y-%m-%d')}")
         st.markdown(f"**To:** {df_trip['datetime'].iloc[-1].strftime('%Y-%m-%d')}")
 
@@ -217,7 +300,9 @@ with tab_sim:
 # TAB 3 — HOW VESSELS FISH
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_patterns:
-    st.write("Patterns tab — coming soon")
+    with open("vessel_patterns.html", "r", encoding="utf-8") as f:
+        patterns_html = f.read()
+    st.iframe(patterns_html)  # , height=620)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -385,7 +470,7 @@ with tab_region:
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
             yaxis=dict(range=[0, 1.05]),
         )
-        st.plotly_chart(fig_metrics, use_container_width=True)
+        st.plotly_chart(fig_metrics, width="stretch")  # use_container_width=True)
 
     # ── Confusion matrix ───────────────────────────────────────────────────
     col_cm, col_fi = st.columns(2)
@@ -402,7 +487,7 @@ with tab_region:
             height=300,
         )
         fig_cm.update_layout(margin=dict(t=10, b=10, l=0, r=0))
-        st.plotly_chart(fig_cm, use_container_width=True)
+        st.plotly_chart(fig_cm, width="stretch")  # use_container_width=True)
 
     with col_fi:
         st.markdown("**Feature Importances**")
@@ -422,7 +507,7 @@ with tab_region:
             xaxis_title="Importance",
             yaxis_title="",
         )
-        st.plotly_chart(fig_fi, use_container_width=True)
+        st.plotly_chart(fig_fi, width="stretch")  # use_container_width=True)
 
     # ── Interactive predictor ──────────────────────────────────────────────
     st.divider()
@@ -522,7 +607,7 @@ with tab_region:
             showlegend=False,
             xaxis=dict(range=[0, 1]),
         )
-        st.plotly_chart(fig_prob, use_container_width=True)
+        st.plotly_chart(fig_prob, width="stretch")  # use_container_width=True)
 
     # ── World map showing predicted region ────────────────────────────────
     st.markdown("**Predicted location on globe**")
@@ -647,4 +732,4 @@ with tab_region:
         margin=dict(t=0, b=0, l=0, r=0),
         height=320,
     )
-    st.plotly_chart(fig_map, use_container_width=True)
+    st.plotly_chart(fig_map, width="stretch")  # use_container_width=True)

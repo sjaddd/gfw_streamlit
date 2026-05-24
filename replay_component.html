@@ -15,19 +15,20 @@
   .model-name { font-size: 10px; color: #6b7fa3; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; font-weight: 600; }
   .pred-row { display: flex; align-items: center; gap: 8px; }
   .pred-label { font-size: 13px; font-weight: 600; min-width: 100px; }
-  .pred-label.fishing   { color: #D85A30; }
-  .pred-label.transiting{ color: #378ADD; }
+  .pred-label.fishing    { color: #D85A30; }
+  .pred-label.transiting { color: #378ADD; }
   .prob-wrap { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-  .prob-fill { height: 100%; border-radius: 2px; transition: width 0.25s ease; }
+  .prob-fill { height: 100%; border-radius: 2px; transition: width 0.15s ease; }
   .prob-fill.fishing    { background: #D85A30; }
   .prob-fill.transiting { background: #378ADD; }
   .prob-val { font-size: 12px; font-family: monospace; font-weight: 600; min-width: 36px; text-align: right; }
-  #info-bar {background: rgba(8,15,30,0.95); border-top: 1px solid rgba(255,255,255,0.08); padding: 8px 16px; display: flex; gap: 20px; align-items: center; z-index: 1000; flex-shrink: 0; }
+  .match-ind { font-size: 13px; margin-left: 2px; min-width: 16px; }
+  #info-bar { background: rgba(8,15,30,0.95); border-top: 1px solid rgba(255,255,255,0.08); padding: 8px 16px; display: flex; gap: 20px; align-items: center; z-index: 1000; flex-shrink: 0; }
   .info-item { display: flex; flex-direction: column; gap: 1px; }
   .info-label { font-size: 10px; color: #6b7fa3; text-transform: uppercase; letter-spacing: 0.07em; }
   .info-val   { font-size: 14px; font-weight: 600; font-family: monospace; }
   #progress-wrap { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-  #progress-fill { height: 100%; background: #1D9E75; border-radius: 2px; transition: width 0.1s linear; }
+  #progress-fill { height: 100%; background: #1D9E75; border-radius: 2px; }
   #ping-counter { font-size: 11px; color: #6b7fa3; font-family: monospace; white-space: nowrap; }
   .truth-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
   .truth-badge.fishing    { background: rgba(216,90,48,0.2);  color: #D85A30; }
@@ -57,26 +58,6 @@
     <span class="info-label">Ground truth</span>
     <span class="truth-badge" id="val-truth">&mdash;</span>
   </div>
-  <div class="info-item">
-    <span class="info-label">Speed</span>
-    <select id="speed-select" style="background:#0d1a2e;color:#e8edf5;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 6px;font-size:12px;font-family:monospace;">
-      <option value="1000">0.5×</option>
-      <option value="500" selected>1×</option>
-      <option value="250">2×</option>
-      <option value="100">5×</option>
-      <option value="50">10×</option>
-    </select>
-  </div>
-  <button id="pause-btn" onclick="togglePause()" style="
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: #e8edf5;
-    border-radius: 4px;
-    padding: 4px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-  ">⏸ Pause</button>
   <div id="progress-wrap"><div id="progress-fill"></div></div>
   <span id="ping-counter">0 / 0</span>
 </div>
@@ -88,14 +69,14 @@
 const map = L.map('map', { zoomControl: true, attributionControl: false })
              .setView([CENTER_LAT, CENTER_LON], 6);
 
-// Fit map to trip bounds once tiles load
-const bounds = L.latLngBounds(PINGS.map(p => [p.lat, p.lon]));
-map.fitBounds(bounds, { padding: [40, 40] });          
-
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
+
+// Fit to trip bounds
+const bounds = L.latLngBounds(PINGS.map(p => [p.lat, p.lon]));
+map.fitBounds(bounds, { padding: [40, 40] });
 
 // ── Build model cards ──────────────────────────────────────────────────────
 const overlay = document.getElementById('overlay');
@@ -103,80 +84,65 @@ MODEL_NAMES.forEach(name => {
   const id  = name.replace(/\s+/g, '_');
   const div = document.createElement('div');
   div.className = 'model-card';
+  div.id = 'card-' + id;
   div.innerHTML = `
-  <div class="model-name">${name}</div>
-  <div class="pred-row">
+    <div class="model-name">${name}</div>
+    <div class="pred-row">
       <span class="pred-label" id="label-${id}">&mdash;</span>
       <div class="prob-wrap"><div class="prob-fill" id="bar-${id}" style="width:0%"></div></div>
       <span class="prob-val" id="prob-${id}">&mdash;</span>
-      <span class="match-ind" id="match-${id}" style="font-size:14px;margin-left:4px;">&nbsp;</span>
-  </div>`;
-//   div.innerHTML = `
-//     <div class="model-name">${name}</div>
-//     <div class="pred-row">
-//       <span class="pred-label" id="label-${id}">&mdash;</span>
-//       <div class="prob-wrap"><div class="prob-fill" id="bar-${id}" style="width:0%"></div></div>
-//       <span class="prob-val" id="prob-${id}">&mdash;</span>
-//     </div>`;
+      <span class="match-ind" id="match-${id}">&nbsp;</span>
+    </div>
+    <div style="margin-top:5px;font-size:10px;color:#6b7fa3;font-family:monospace;display:flex;justify-content:space-between;">
+      <span id="acc-${id}">0 / 0</span>
+      <span id="acc-pct-${id}" style="font-weight:600;">—</span>
+    </div>`;    
   overlay.appendChild(div);
 });
 
+const correctCounts = {};
+const totalCounts   = {};
+MODEL_NAMES.forEach(name => {
+  correctCounts[name] = 0;
+  totalCounts[name]   = 0;
+});
+
 // ── Leaflet layers ─────────────────────────────────────────────────────────
-const FISHING_COLOR   = '#D85A30';
-const TRANSIT_COLOR   = '#378ADD';
-const CURRENT_COLOR   = '#ffffff';
+const FISHING_COLOR = '#D85A30';
+const TRANSIT_COLOR = '#378ADD';
+const CURRENT_COLOR = '#ffffff';
 
 // Ghost track (full trip, faint)
-const ghostCoords = PINGS.map(p => [p.lat, p.lon]);
-L.polyline(ghostCoords, { color: 'rgba(255,255,255,0.12)', weight: 1.5, smoothFactor: 1 }).addTo(map);
+L.polyline(PINGS.map(p => [p.lat, p.lon]), {
+  color: 'rgba(255,255,255,0.12)', weight: 1.5, smoothFactor: 1
+}).addTo(map);
 
 // Animated track polyline
-const trackLine = L.polyline([], { color: 'rgba(255,255,255,0.55)', weight: 2 }).addTo(map);
+const trackLine = L.polyline([], {
+  color: 'rgba(255,255,255,0.55)', weight: 2
+}).addTo(map);
 
-// Circle markers group for past pings
+// Past ping dots
 const pingLayer = L.layerGroup().addTo(map);
 
-// Current position marker
+// Current position marker — white gliding dot
 const currentMarker = L.circleMarker([CENTER_LAT, CENTER_LON], {
   radius: 9, color: '#080f1e', weight: 2,
   fillColor: CURRENT_COLOR, fillOpacity: 1
 }).addTo(map);
 
-// ── Animation ──────────────────────────────────────────────────────────────
-let step     = 0;
-let lastTime = null;
-let paused = false;
-const MS_PER_PING = 250;
+// ── Animation state ────────────────────────────────────────────────────────
+let currentStep  = 0;   // index of the ping we are travelling FROM
+let stepProgress = 0.0; // 0.0 → 1.0 fraction of the way to next ping
+let lastTimestamp = null;
+let MS_PER_PING   = 250; // controlled by speed select in info bar
 
-function togglePause() {
-  paused = !paused;
-  document.getElementById('pause-btn').textContent = paused ? '▶ Play' : '⏸ Pause';
-}
-
-function updateFrame(s) {
+// ── Info bar helpers ───────────────────────────────────────────────────────
+function updateInfoBar(s) {
   const curr = PINGS[s];
-  const past = PINGS.slice(0, s + 1);
 
-  // Update track
-  trackLine.setLatLngs(past.map(p => [p.lat, p.lon]));
-
-  // Update ping dots (add one at a time for performance)
-  if (s > 0) {
-    const prev = PINGS[s - 1];
-    L.circleMarker([prev.lat, prev.lon], {
-      radius: 4,
-      color: 'transparent',
-      fillColor: prev.is_fishing === 1 ? FISHING_COLOR : TRANSIT_COLOR,
-      fillOpacity: 0.85
-    }).addTo(pingLayer);
-  }
-
-  // Update current marker
-  currentMarker.setLatLng([curr.lat, curr.lon]);
-
-  // Info bar
-  document.getElementById('val-speed').textContent   = curr.speed.toFixed(1) + ' kts';
-  document.getElementById('val-course').textContent  = curr.course.toFixed(0) + '\u00b0';
+  document.getElementById('val-speed').textContent    = curr.speed.toFixed(1) + ' kts';
+  document.getElementById('val-course').textContent   = curr.course.toFixed(0) + '\u00b0';
   document.getElementById('val-datetime').textContent = curr.datetime.slice(0, 16).replace('T', ' ');
 
   const truthEl = document.getElementById('val-truth');
@@ -188,79 +154,213 @@ function updateFrame(s) {
     truthEl.className   = 'truth-badge transiting';
   }
 
-  // Progress
-  document.getElementById('progress-fill').style.width = ((s / (PINGS.length - 1)) * 100) + '%';
+  // Progress — based on step fraction for smooth bar movement
+  const totalProgress = (currentStep + stepProgress) / (PINGS.length - 1);
+  document.getElementById('progress-fill').style.width = (totalProgress * 100).toFixed(2) + '%';
   document.getElementById('ping-counter').textContent  = (s + 1) + ' / ' + PINGS.length;
+}
 
-  // Model cards
+function updateModelCards(s) {
+  const curr = PINGS[s];
   MODEL_NAMES.forEach(name => {
-    const id   = name.replace(/\s+/g, '_');
-    const pred = PREDS[name][s];
-    const fish = pred.label === 1;
-    const pct  = Math.round(pred.prob * 100);
+    const id      = name.replace(/\s+/g, '_');
+    const pred    = PREDS[name][s];
+    const fish    = pred.label === 1;
+    const pct     = Math.round(pred.prob * 100);
+    const correct = pred.label === curr.is_fishing;
 
-    const labelEl = document.getElementById('label-' + id);
-    const barEl   = document.getElementById('bar-'   + id);
-    const probEl  = document.getElementById('prob-'  + id);
+    // Only count each ping once — check if this step was already counted
+    if (totalCounts[name] <= s) {
+      totalCounts[name]++;
+      if (correct) correctCounts[name]++;
+    }
 
-    const matchEl = document.getElementById('match-' + id);
-    const correct = (pred.label === curr.is_fishing);
+    const labelEl  = document.getElementById('label-' + id);
+    const barEl    = document.getElementById('bar-'   + id);
+    const probEl   = document.getElementById('prob-'  + id);
+    const matchEl  = document.getElementById('match-' + id);
+    const accEl    = document.getElementById('acc-'   + id);
+    const accPctEl = document.getElementById('acc-pct-' + id);
 
     labelEl.textContent = fish ? '\uD83C\uDFA3 Fishing' : '\u26F5 Transiting';
     labelEl.className   = 'pred-label ' + (fish ? 'fishing' : 'transiting');
 
-    barEl.style.width     = pct + '%';
-    barEl.className       = 'prob-fill ' + (fish ? 'fishing' : 'transiting');
+    barEl.style.width = pct + '%';
+    barEl.className   = 'prob-fill ' + (fish ? 'fishing' : 'transiting');
 
-    probEl.textContent  = pct + '%';
-    probEl.style.color  = fish ? FISHING_COLOR : TRANSIT_COLOR;
+    probEl.textContent = pct + '%';
+    probEl.style.color = fish ? FISHING_COLOR : TRANSIT_COLOR;
 
-    matchEl.textContent = correct ? '✓' : '✗';
-    matchEl.style.color = correct ? '#1D9E75' : '#D85A30';    
+    matchEl.textContent = correct ? '\u2713' : '\u2717';
+    matchEl.style.color = correct ? '#1D9E75' : '#D85A30';
+
+    // Running accuracy
+    const total = totalCounts[name];
+    const corr  = correctCounts[name];
+    accEl.textContent    = `${corr} / ${total}`;
+    accPctEl.textContent = total > 0 ? (corr / total * 100).toFixed(1) + '%' : '—';
+    accPctEl.style.color = total > 0
+      ? (corr / total >= 0.7 ? '#1D9E75' : corr / total >= 0.5 ? '#EF9F27' : '#D85A30')
+      : '#6b7fa3';
   });
 }
 
+// ── Main animation tick ────────────────────────────────────────────────────
 function tick(timestamp) {
-  if (paused) {
-    requestAnimationFrame(tick);
+  if (paused) return;
+  if (!lastTimestamp) lastTimestamp = timestamp;
+  const elapsed = timestamp - lastTimestamp;
+  lastTimestamp = timestamp;
+
+  stepProgress += elapsed / MS_PER_PING;
+
+  // Handle step completion — may need to advance multiple steps if
+  // elapsed time was large (e.g. tab was backgrounded)
+  while (stepProgress >= 1.0 && currentStep < PINGS.length - 1) {
+    stepProgress -= 1.0;
+    currentStep++;
+
+    // Place a dot at the ping we just completed travelling FROM
+    const arrived = PINGS[currentStep - 1];
+    L.circleMarker([arrived.lat, arrived.lon], {
+      radius: 4,
+      color: 'transparent',
+      fillColor: arrived.is_fishing === 1 ? FISHING_COLOR : TRANSIT_COLOR,
+      fillOpacity: 0.85
+    }).addTo(pingLayer);
+  }
+
+  // End of trip — pause then loop
+  if (currentStep >= PINGS.length - 1) {
+    // Place final dot
+    const last = PINGS[PINGS.length - 1];
+    L.circleMarker([last.lat, last.lon], {
+      radius: 4, color: 'transparent',
+      fillColor: last.is_fishing === 1 ? FISHING_COLOR : TRANSIT_COLOR,
+      fillOpacity: 0.85
+    }).addTo(pingLayer);
+
+    currentMarker.setLatLng([last.lat, last.lon]);
+    updateInfoBar(PINGS.length - 1);
+    updateModelCards(PINGS.length - 1);
+
+    // Find best model
+    const bestModel = MODEL_NAMES.reduce((best, name) =>
+      (correctCounts[name] / totalCounts[name]) > (correctCounts[best] / totalCounts[best])
+        ? name : best
+    );
+    
+
+    MODEL_NAMES.forEach(name => {
+      const id    = name.replace(/\s+/g, '_');
+      const card  = document.getElementById('card-' + name.replace(/\s+/g, '_'));
+      const pctEl = document.getElementById('acc-pct-' + id);
+      // if (name === bestModel) {
+      //   pctEl.textContent = (correctCounts[name] / totalCounts[name] * 100).toFixed(1) + '% 🏆';
+      //   pctEl.style.color = '#1D9E75';
+      // }
+      if (name === bestModel) {
+        pctEl.textContent    = (correctCounts[name] / totalCounts[name] * 100).toFixed(1) + '% \uD83C\uDFC6';
+        pctEl.style.color    = '#1D9E75';
+        card.style.borderColor = '#1D9E75';
+      } else {
+        card.style.borderColor = 'rgba(255,255,255,0.12)';
+      }      
+    });    
+
+    setTimeout(() => {
+        currentStep  = 0;
+        stepProgress = 0;
+        lastTimestamp = null;
+        // Don't restart — update pause button to show Replay
+        paused = true;
+        document.getElementById('pause-btn').textContent = '↺ Replay';
+    }, 2000);    
+
     return;
   }
-  if (!lastTime) lastTime = timestamp;
-  const msPerPing = parseInt(document.getElementById('speed-select').value);
-  if (timestamp - lastTime >= msPerPing) {
-    lastTime = timestamp;
-    updateFrame(step);
-    step++;
-    if (step >= PINGS.length) {
-      step = 0;
-      pingLayer.clearLayers();
-      trackLine.setLatLngs([]);
-      setTimeout(() => { lastTime = null; requestAnimationFrame(tick); }, 2000);
-      return;
-    }
-  }
+
+  // ── Interpolate position between currentStep and currentStep+1 ──────────
+  const clampedProgress = Math.min(stepProgress, 1.0);
+  const from = PINGS[currentStep];
+  const to   = PINGS[currentStep + 1];
+
+  const lat = from.lat + (to.lat - from.lat) * clampedProgress;
+  const lon = from.lon + (to.lon - from.lon) * clampedProgress;
+
+  // Update gliding marker
+  currentMarker.setLatLng([lat, lon]);
+
+  // Extend track line to interpolated position
+  const pastCoords = PINGS.slice(0, currentStep + 1).map(p => [p.lat, p.lon]);
+  pastCoords.push([lat, lon]);
+  trackLine.setLatLngs(pastCoords);
+
+  // Info bar and model cards update at each real ping boundary
+  updateInfoBar(currentStep);
+  updateModelCards(currentStep);
+
   requestAnimationFrame(tick);
 }
 
-// function tick(timestamp) {
-//   if (!lastTime) lastTime = timestamp;
-//   if (timestamp - lastTime >= MS_PER_PING) {
-//     lastTime = timestamp;
-//     updateFrame(step);
-//     step++;
-//     if (step >= PINGS.length) {
-//       // Pause then loop
-//       step = 0;
-//       pingLayer.clearLayers();
-//       trackLine.setLatLngs([]);
-//       setTimeout(() => { lastTime = null; requestAnimationFrame(tick); }, 2000);
-//       return;
-//     }
-//   }
-//   requestAnimationFrame(tick);
-// }
+// ── Add speed selector to info bar ────────────────────────────────────────
+const speedItem = document.createElement('div');
+speedItem.className = 'info-item';
+speedItem.innerHTML = `
+  <span class="info-label">Speed</span>
+  <select id="speed-select" style="background:#0d1a2e;color:#e8edf5;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 6px;font-size:12px;font-family:monospace;">
+    <option value="500">0.5×</option>
+    <option value="250" selected>1×</option>
+    <option value="125">2×</option>
+    <option value="50">5×</option>
+    <option value="20">10×</option>
+  </select>`;
 
-// Start after map is ready
+// Insert before progress bar
+const progressWrap = document.getElementById('progress-wrap');
+document.getElementById('info-bar').insertBefore(speedItem, progressWrap);
+
+document.getElementById('speed-select').addEventListener('change', function() {
+  MS_PER_PING = parseInt(this.value);
+});
+
+// ── Add pause button to info bar ──────────────────────────────────────────
+let paused = false;
+const pauseItem = document.createElement('div');
+pauseItem.innerHTML = `
+  <button id="pause-btn" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e8edf5;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer;white-space:nowrap;">
+    ⏸ Pause
+  </button>`;
+document.getElementById('info-bar').insertBefore(pauseItem, progressWrap);
+
+document.getElementById('pause-btn').addEventListener('click', function() {
+  
+  if (this.textContent.includes('Replay')) {
+    console.log('Taking replay branch');
+    currentStep  = 0;
+    stepProgress = 0;
+    lastTimestamp = null;
+    pingLayer.clearLayers();
+    trackLine.setLatLngs([]);
+    MODEL_NAMES.forEach(name => {
+      correctCounts[name] = 0;
+      totalCounts[name]   = 0;
+    });    
+    paused = false;
+    this.textContent = '⏸ Pause';
+    requestAnimationFrame(tick);
+  } else {
+    console.log('Taking pause/play branch');
+    paused = !paused;
+    this.textContent = paused ? '▶ Play' : '⏸ Pause';
+    if (!paused) {
+      lastTimestamp = null;
+      requestAnimationFrame(tick);
+    }
+  }
+});
+
+// ── Start ──────────────────────────────────────────────────────────────────
 map.whenReady(() => {
   setTimeout(() => requestAnimationFrame(tick), 300);
 });
