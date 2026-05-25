@@ -12,7 +12,7 @@ from sklearn.metrics import classification_report, accuracy_score, confusion_mat
 
 st.set_page_config(page_title="GFW Vessel Classifier", page_icon="🚢", layout="wide")
 
-# Hide the Streamlit menu (useful for recording)
+# Hide the Streamlit menu (useful for recording, comment out when deploying)
 # hide_menu = """
 # <style>
 # header {visibility: hidden;}
@@ -21,6 +21,7 @@ st.set_page_config(page_title="GFW Vessel Classifier", page_icon="🚢", layout=
 # </style>
 # """
 # st.markdown(hide_menu, unsafe_allow_html=True)
+# End of Hide the Streamlit menu code
 
 st.title("🚢 GFW Vessel Behaviour Classifier")
 st.caption("Classifying fishing vessel behaviour from AIS tracking data")
