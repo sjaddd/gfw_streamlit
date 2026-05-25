@@ -398,6 +398,8 @@ document.getElementById('pause-btn').addEventListener('click', function() {
       document.getElementById('bacc-' + id).textContent = '\u2014';
       document.getElementById('label-' + id).textContent = '\u2014';
       document.getElementById('label-' + id).className = 'pred-label';
+      document.getElementById('bar-' + id).style.width = '0%';
+      document.getElementById('bar-' + id).className = 'prob-fill';      
     });    
     paused = false;
     this.textContent = '⏸ Pause';
@@ -446,6 +448,8 @@ document.getElementById('reset-btn').addEventListener('click', function() {
     document.getElementById('rec-'  + id).textContent = '\u2014';
     document.getElementById('bacc-' + id).textContent = '\u2014';    
     document.getElementById('ping-counter').textContent = 0 + ' / ' + PINGS.length;
+    document.getElementById('bar-' + id).style.width = '0%';
+    document.getElementById('bar-' + id).className = 'prob-fill';    
     const pctEl = document.getElementById('acc-pct-' + id);
     pctEl.textContent = '\u2014';
     pctEl.style.color = '#6b7fa3';
