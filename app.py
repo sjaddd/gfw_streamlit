@@ -12,10 +12,20 @@ from sklearn.metrics import classification_report, accuracy_score, confusion_mat
 
 st.set_page_config(page_title="GFW Vessel Classifier", page_icon="🚢", layout="wide")
 
+# Hide the Streamlit menu (useful for recording)
+# hide_menu = """
+# <style>
+# header {visibility: hidden;}
+# #MainMenu {visibility: hidden;}
+# footer {visibility: hidden;}
+# </style>
+# """
+# st.markdown(hide_menu, unsafe_allow_html=True)
+
 st.title("🚢 GFW Vessel Behaviour Classifier")
 st.caption("Classifying fishing vessel behaviour from AIS tracking data")
 
-NAME_OVERRIDES = {
+COUNTRY_NAME_OVERRIDES = {
     "KR": "South Korea",
     "TW": "Taiwan",
     "TZ": "Tanzania",
@@ -62,10 +72,14 @@ def load_data(test_trip_ids):
     df = pd.read_parquet("data/gfw_features.parquet")
     df = df[df["trip_id_global"].isin(set(test_trip_ids))].copy()
 
-    MIN_PINGS = 20
+    MIN_PINGS = 25
+    MAX_PINGS = 200
 
     ping_counts = df.groupby("trip_id_global").size()
-    valid_by_length = ping_counts[ping_counts >= MIN_PINGS].index
+    # valid_by_length = ping_counts[ping_counts >= MIN_PINGS].index
+    valid_by_length = ping_counts[
+        (ping_counts >= MIN_PINGS) & (ping_counts <= MAX_PINGS)
+    ].index
 
     def has_transition(x):
         return x.nunique() > 1
@@ -92,8 +106,8 @@ def get_trip_label(df_trip):
 
 
 def country_code_to_name(code):
-    if code in NAME_OVERRIDES:
-        return NAME_OVERRIDES[code]
+    if code in COUNTRY_NAME_OVERRIDES:
+        return COUNTRY_NAME_OVERRIDES[code]
     try:
         return pycountry.countries.get(alpha_2=code).name
     except:
@@ -215,7 +229,7 @@ with tab_replay:
             return label
 
     with col_controls:
-        st.subheader("Select vessel")
+        st.subheader("Trip Selection")
 
         gear_options = sorted(df_test["vessel_gear_type"].astype(str).unique())
 
@@ -257,7 +271,7 @@ with tab_replay:
         st.caption(f"{len(df_trip)} pings in this trip")
 
         st.divider()
-        st.subheader("Info")
+        st.subheader("Information")
         st.markdown(f"**Gear type:** {GEAR_LABELS.get(selected_gear, selected_gear)}")
         st.markdown(f"**From:** {df_trip['datetime'].iloc[0].strftime('%Y-%m-%d')}")
         st.markdown(f"**To:** {df_trip['datetime'].iloc[-1].strftime('%Y-%m-%d')}")
@@ -267,7 +281,7 @@ with tab_replay:
 
         st.divider()
         st.caption("🔴 Fishing  🔵 Transiting  ⚪ Current position")
-        st.caption("Animation loops automatically")
+        # st.caption("Animation loops automatically")
 
     with col_map:
         # Run predictions (cache per trip so they don't recompute on widget changes)
@@ -278,13 +292,14 @@ with tab_replay:
         preds = st.session_state.preds_cache
 
         with st.spinner("Loading map..."):
+            map_height = 800
             html = build_replay_html(
                 df_trip,
                 preds,
                 list(models.keys()),
-                height=820,
+                height=map_height,
             )
-            st.iframe(html, height=820)
+            st.iframe(html, height=map_height)
 
 
 # # ══════════════════════════════════════════════════════════════════════════════
