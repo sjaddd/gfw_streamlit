@@ -252,11 +252,7 @@ with tab_replay:
         trip_display = {t: trip_labels.get(t, t) for t in trips_for_gear}
 
         # Then sort by label
-        # trip_options = sorted(trips_for_gear, key=lambda t: trip_display.get(t, t))
         trip_options = sorted(trips_for_gear, key=label_sort_key)
-
-        # trip_options = sorted(trips_for_gear, key=label_sort_key)
-        # trip_display = {t: trip_labels.get(t, t) for t in trip_options}
 
         selected_trip = st.selectbox(
             "Trip (nearest port)",
@@ -303,15 +299,8 @@ with tab_replay:
             st.iframe(html, height=map_height)
 
 
-# # ══════════════════════════════════════════════════════════════════════════════
-# # TAB 2 — SIMULATOR (deprecated)
-# # ══════════════════════════════════════════════════════════════════════════════
-# with tab_sim:
-#     st.write("Simulator tab — coming soon")
-
-
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — HOW VESSELS FISH
+# TAB 2 — HOW VESSELS FISH
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_patterns:
     with open("vessel_patterns.html", "r", encoding="utf-8") as f:
@@ -320,7 +309,7 @@ with tab_patterns:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — OCEAN REGION PREDICTOR (Q3)
+# TAB 3 — OCEAN REGION PREDICTOR (Q3)
 # ══════════════════════════════════════════════════════════════════════════════
 
 REGION_FEATURES = [
@@ -746,4 +735,4 @@ with tab_region:
         margin=dict(t=0, b=0, l=0, r=0),
         height=320,
     )
-    st.plotly_chart(fig_map, width="stretch")  # use_container_width=True)
+    st.plotly_chart(fig_map, width="stretch")
